@@ -1,0 +1,11 @@
+# Ren Tauri
+
+一款你的下一代视觉小说引擎！
+
+编译器和运行器分开处理！每一个 .rrs 都是一个完整的游戏！
+
+Lua 教程可以参考 [官方教程 gitbook](https://candysharkstudio.gitbook.io/ren-tauri-lua-tutorial)，**需要挂七根木棍才能上**
+
+请注意！使用本教程的 Lua 已经可以解决 99% 的 UI/UX 问题，视觉小说完全可以直接用这个做！还有 1% 的问题是可能实在是引擎部分解决不了的，需要手动修改 RenTauri 的源代码的。。
+
+不过嘛，我的 RenTauri 采取的发布方式就是源代码发布！各位想制作游戏必须使用 git clone 去下载我的源仓库才能制作。。因此，，就这样吧！
