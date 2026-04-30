@@ -1,17 +1,21 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <link rel="icon" type="image/svg+xml" href="/src/assets/logo.svg" />
-    <title>Tauri + Solid + Typescript App</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        background-color: black;
+      }
+    </style>
+    <title>Tauri App</title>
+    <script type="module" src="/src/main.ts" defer></script>
   </head>
-
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-
-    <script src="/src/index.tsx" type="module"></script>
+    <main id="root"></main>
   </body>
 </html>

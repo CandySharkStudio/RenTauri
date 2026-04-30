@@ -1,0 +1,1 @@
+pub const AES_KEY: &str = "15k4gMAIeCY9lo1xwRPD9oIyyjd4RoduWHXOHQPSbhg=";
