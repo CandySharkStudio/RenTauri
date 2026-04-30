@@ -29,7 +29,7 @@ pub fn decrypt_to_memory(
     iv1.copy_from_slice(&dir_ciphertext[0..16]);
     let dir_ct = &dir_ciphertext[16..];
     // 解密目录（密钥错了这里不会报错，但是下面填充时会报错！）
-    let mut cipher1 = Aes256::new_from_slice(&key).map_err(|e| e.to_string())?; 
+    let mut cipher1 = Aes256::new_from_slice(&key).map_err(|e| e.to_string())?;
     let mut dir_plaintext = vec![0u8; dir_ct.len()];
     let mut prev1 = iv1;
     for (i, chunk) in dir_ct.chunks_exact(16).enumerate() {
@@ -37,19 +37,26 @@ pub fn decrypt_to_memory(
         curr_ct.copy_from_slice(chunk);
         let mut block = curr_ct;
         cipher1.decrypt_block_mut((&mut block).into());
-        for j in 0..16 { block[j] ^= prev1[j]; }
+        for j in 0..16 {
+            block[j] ^= prev1[j];
+        }
         dir_plaintext[i * 16..(i + 1) * 16].copy_from_slice(&block);
         prev1 = curr_ct;
     }
     // 如果密钥错误，那么这里直接抛出报错，在通过 iv1 解密目录时就已经失败了。。
     let pad_val = dir_plaintext.last().ok_or("目录数据为空")?;
-    if *pad_val == 0 || *pad_val > 16 || dir_plaintext[dir_plaintext.len() - (*pad_val as usize)..].iter().any(|&b| b != *pad_val) {
+    if *pad_val == 0
+        || *pad_val > 16
+        || dir_plaintext[dir_plaintext.len() - (*pad_val as usize)..]
+            .iter()
+            .any(|&b| b != *pad_val)
+    {
         return Err("密钥错误或文件损坏".into());
     }
     let raw_dir = &dir_plaintext[..dir_plaintext.len() - (*pad_val as usize)];
     // 解密目录
     let mut offset = 0;
-    let file_count = u32::from_le_bytes(raw_dir[offset..offset+4].try_into()?) as usize;
+    let file_count = u32::from_le_bytes(raw_dir[offset..offset + 4].try_into()?) as usize;
     offset += 4;
     let mut result_map: HashMap<String, Vec<u8>> = HashMap::with_capacity(file_count);
     let mut write_queue: Vec<WriteTask> = Vec::with_capacity(file_count);
@@ -57,15 +64,19 @@ pub fn decrypt_to_memory(
     // 记录真实的 main.lua 的文件名！以便于后面直接读取。
     let mut last_file_name: Option<String> = None;
     for _ in 0..file_count {
-        let path_len = u32::from_le_bytes(raw_dir[offset..offset+4].try_into()?) as usize;
+        let path_len = u32::from_le_bytes(raw_dir[offset..offset + 4].try_into()?) as usize;
         offset += 4;
-        let path_string = String::from_utf8(raw_dir[offset..offset+path_len].to_vec())?;
+        let path_string = String::from_utf8(raw_dir[offset..offset + path_len].to_vec())?;
         offset += path_len;
-        let file_size = u64::from_le_bytes(raw_dir[offset..offset+8].try_into()?);
+        let file_size = u64::from_le_bytes(raw_dir[offset..offset + 8].try_into()?);
         offset += 8;
         total_valid_size += file_size;
         result_map.insert(path_string.clone(), Vec::with_capacity(file_size as usize));
-        write_queue.push(WriteTask { path: path_string.clone(), total_size: file_size, written: 0 });
+        write_queue.push(WriteTask {
+            path: path_string.clone(),
+            total_size: file_size,
+            written: 0,
+        });
         last_file_name = Some(path_string);
     }
     // 读取 iv2
@@ -81,7 +92,7 @@ pub fn decrypt_to_memory(
     loop {
         let bytes_read = in_file.read(&mut ct_buf)?;
         if bytes_read == 0 {
-            break; 
+            break;
         }
         let mut pt_idx = 0;
         // 逐块解密

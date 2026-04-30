@@ -1,5 +1,5 @@
-use tauri::Manager;
 use std::sync::OnceLock;
+use tauri::Manager;
 pub static HOME_DIR: OnceLock<String> = OnceLock::new();
 fn set_file(path: String, contents: &str) -> Option<()> {
     std::fs::write(path, contents.as_bytes()).ok()
@@ -7,7 +7,10 @@ fn set_file(path: String, contents: &str) -> Option<()> {
 fn get_file(path: String) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
-pub fn init_home_dir(app_handle: &tauri::AppHandle, dir_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn init_home_dir(
+    app_handle: &tauri::AppHandle,
+    dir_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let base_dir = app_handle
         .path()
         .app_local_data_dir()
@@ -30,11 +33,26 @@ pub fn create_dir(path: &str) -> bool {
 }
 #[cfg(all(target_os = "macos", not(debug_assertions)))]
 pub fn get_executable_file_path() -> Option<String> {
-    Some(std::env::current_exe().ok()?.parent()?.parent()?.parent()?.parent()?.to_string_lossy().to_string())
+    Some(
+        std::env::current_exe()
+            .ok()?
+            .parent()?
+            .parent()?
+            .parent()?
+            .parent()?
+            .to_string_lossy()
+            .to_string(),
+    )
 }
 #[cfg(any(not(target_os = "macos"), debug_assertions))]
 pub fn get_executable_file_path() -> Option<String> {
-    Some(std::env::current_exe().ok()?.parent()?.to_string_lossy().to_string())
+    Some(
+        std::env::current_exe()
+            .ok()?
+            .parent()?
+            .to_string_lossy()
+            .to_string(),
+    )
 }
 #[macro_export]
 macro_rules! path_join {
