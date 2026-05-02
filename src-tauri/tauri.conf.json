@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ren-tauri",
+  "productName": "ren-rs",
   "version": "0.1.0",
-  "identifier": "com.xphost.ren-tauri",
+  "identifier": "com.xphost.ren-rs",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "ren-tauri",
+        "title": "ren-rs",
         "width": 1280,
         "height": 720
       }
