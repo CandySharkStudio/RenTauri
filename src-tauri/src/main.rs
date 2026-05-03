@@ -27,6 +27,7 @@ enum ErrorCode {
     AesKeyHasWrong = -2147483647,
     NotImplements = -2147483648,
 }
+// 自主实现一个 serde::Serialize，以便于将 Enum 值转换成 i32，便于更好的排除一些 bug。
 impl serde::Serialize for ErrorCode {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -152,10 +153,7 @@ fn lua_value_to_json(key: String, value: mlua::Value) -> Result<serde_json::Valu
             let str = s
                 .to_str()
                 .map_err(|_| {
-                    mlua::Error::runtime(format!(
-                        "Cannot convert Define code to string! key: {}",
-                        key
-                    ))
+                    mlua::Error::runtime(format!("Cannot convert Define to string! key: {}", key))
                 })?
                 .to_string();
             if str == "null" || str == "nil" {
@@ -165,7 +163,7 @@ fn lua_value_to_json(key: String, value: mlua::Value) -> Result<serde_json::Valu
         }
         mlua::Value::Number(n) => {
             let num = serde_json::Number::from_f64(n).ok_or(mlua::Error::runtime(format!(
-                "Cannot convert Define code to f64! key: {}",
+                "Cannot convert Define to f64! key: {}",
                 key
             )))?;
             Ok(serde_json::Value::Number(num))
@@ -175,7 +173,7 @@ fn lua_value_to_json(key: String, value: mlua::Value) -> Result<serde_json::Valu
         mlua::Value::Table(t) => Ok(recursion_lua_table_to_json(key, &t)?),
         _ => {
             return Err(mlua::Error::runtime(format!(
-                "Cannot convert Define a valid value! key: {}",
+                "Cannot convert Define to a valid value! key: {}",
                 key
             )));
         }
@@ -202,20 +200,10 @@ fn camel_to_kebab(s: String) -> String {
 fn style_to_string(style: &mlua::Table) -> Result<String, mlua::Error> {
     let mut result = String::new();
     for pairs in style.pairs::<mlua::Value, mlua::Value>() {
-        let (key, value) = pairs?;
-        if let mlua::Value::String(k) = key {
-            if let mlua::Value::String(v) = value {
-                result.push_str(&format!(
-                    "{}:{};",
-                    camel_to_kebab(k.to_string_lossy().to_string()),
-                    v.to_string_lossy().to_string()
-                ));
-            } else {
-                return Err(mlua::Error::runtime("Cannot parse CSS value to String!"));
-            }
-        } else {
-            return Err(mlua::Error::runtime("Cannot parse CSS key to String!"));
-        }
+        let (k, v) = pairs?;
+        let k = k.to_string()?.to_string();
+        let v = v.to_string()?.to_string();
+        result.push_str(&format!("{}:{};", camel_to_kebab(k), v));
     }
     Ok(result)
 }
@@ -307,8 +295,8 @@ fn init_copywriting(
                 msg: format!("Cannot create lua global by set define!\nmessage: {}", e),
             })?;
         let set_translate_borrow = copywriting_struct.clone();
-        let set_translate =
-            lua.create_function(move |_: &Lua, (key, value): (String, LuaTable)| {
+        let set_translate = lua
+            .create_function(move |_: &Lua, (key, value): (String, LuaTable)| {
                 let translate_kvargs = &mut set_translate_borrow.borrow_mut().translate;
                 if !translate_kvargs.contains_key(key.as_str()) {
                     translate_kvargs.insert(key.clone(), BTreeMap::new());
@@ -316,23 +304,9 @@ fn init_copywriting(
                 let translate_kvargs = translate_kvargs.get_mut(key.as_str()).unwrap();
                 for pair in value.pairs::<mlua::Value, mlua::Value>() {
                     let (k, v) = pair?;
-                    if let mlua::Value::String(k) = k {
-                        if let mlua::Value::String(v) = v {
-                            let k = k.to_string_lossy().to_string();
-                            let v = v.to_string_lossy().to_string();
-                            translate_kvargs.insert(k, v);
-                        } else {
-                            return Err(mlua::Error::RuntimeError(format!(
-                                "Connot convert translate value in this key {} and this translate key {}",
-                                key, k.to_string_lossy().to_string()
-                            )));
-                        }
-                    } else {
-                        return Err(mlua::Error::RuntimeError(format!(
-                            "Connot convert translate key in this key {}",
-                            key
-                        )));
-                    }
+                    let k = k.to_string()?.to_string();
+                    let v = v.to_string()?.to_string();
+                    translate_kvargs.insert(k, v);
                 }
                 Ok(())
             })
