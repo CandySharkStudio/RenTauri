@@ -20,6 +20,7 @@ enum ErrorCode {
     CannotCreateGameDir = -3,
     CannotDecryptData = -4,
     CannotParseLuaFile = -5,
+    CannotCreateLuaGlobal = -6,
     CannotInitHomeDir = -10000,
     AesKeyHasWrong = -2147483647,
     NotImplements = -2147483648,
@@ -29,23 +30,62 @@ pub struct RTError {
     msg: String,
     code: ErrorCode,
 }
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct CopywritingStruct {
     // 全局定义
-    define: serde_json::Map<String, serde_json::Value>,
+    define: BTreeMap<String, serde_json::Value>,
     // 部分二进制资源。
     resource: BTreeMap<String, String>,
-    // 当前语言文件里面的总数
-    locale: BTreeMap<String, String>,
     // 当前翻译
     translate: BTreeMap<String, BTreeMap<String, String>>,
     // 当前样式表
-    style: serde_json::Map<String, serde_json::Value>,
+    style: BTreeMap<String, String>,
     // 最终的文案代码！
-    copywriting: serde_json::Map<String, serde_json::Value>,
+    copywriting: serde_json::Value,
 }
 pub static COPY_WRITING: std::sync::OnceLock<CopywritingStruct> = std::sync::OnceLock::new();
-// 遍历当前 LuaTable，将当前 LuaTable 转成 serde_json 格式。
+///
+/// 遍历当前 serde_json::Value，将当前 serde_json::Value 转成 LuaTable 格式。
+///
+pub fn json_to_lua_value(
+    lua: &mlua::prelude::Lua,
+    val: &serde_json::Value,
+) -> Result<mlua::Value, mlua::Error> {
+    match val {
+        serde_json::Value::Null => Ok(mlua::Value::String(lua.create_string("null")?)),
+        serde_json::Value::Bool(b) => Ok(mlua::Value::Boolean(*b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(mlua::Value::Integer(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(mlua::Value::Number(f))
+            } else {
+                Err(mlua::Error::runtime("无效的 JSON 数字"))
+            }
+        }
+        serde_json::Value::String(s) => Ok(mlua::Value::String(lua.create_string(s)?)),
+        serde_json::Value::Array(arr) => {
+            let table = lua.create_table()?;
+            for (i, v) in arr.iter().enumerate() {
+                let lua_val = json_to_lua_value(lua, v)?;
+                table.set(i + 1, lua_val)?; // 特殊：LuaTable 索引从 1 开始。。
+            }
+            Ok(mlua::Value::Table(table))
+        }
+        serde_json::Value::Object(obj) => {
+            let table = lua.create_table()?;
+            for (k, v) in obj.iter() {
+                let lua_key = lua.create_string(k)?;
+                let lua_val = json_to_lua_value(lua, v)?;
+                table.set(lua_key, lua_val)?;
+            }
+            Ok(mlua::Value::Table(table))
+        }
+    }
+}
+///
+/// 遍历当前 LuaTable，将当前 LuaTable 转成 serde_json 格式。
+///
 fn recursion_lua_table_to_json(
     key: String,
     table: &mlua::Table,
@@ -93,6 +133,9 @@ fn recursion_lua_table_to_json(
         Ok(serde_json::Value::Object(r_map))
     }
 }
+///
+/// Lua 值转换成 JSON
+///
 fn lua_value_to_json(key: String, value: mlua::Value) -> Result<serde_json::Value, mlua::Error> {
     match value {
         mlua::Value::String(s) => {
@@ -105,6 +148,9 @@ fn lua_value_to_json(key: String, value: mlua::Value) -> Result<serde_json::Valu
                     ))
                 })?
                 .to_string();
+            if str == "null" || str == "nil" {
+                return Ok(serde_json::Value::Null);
+            }
             Ok(serde_json::Value::String(str))
         }
         mlua::Value::Number(n) => {
@@ -125,6 +171,47 @@ fn lua_value_to_json(key: String, value: mlua::Value) -> Result<serde_json::Valu
         }
     }
 }
+///
+/// 将小驼峰转换成短横线
+///
+fn camel_to_kebab(s: String) -> String {
+    let mut result = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() {
+            if i != 0 {
+                result.push('-');
+            }
+            result.push(ch.to_ascii_lowercase());
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+fn style_to_string(style: &mlua::Table) -> Result<String, mlua::Error> {
+    let mut result = String::new();
+    for pairs in style.pairs::<mlua::Value, mlua::Value>() {
+        let (key, value) = pairs?;
+        if let mlua::Value::String(k) = key {
+            if let mlua::Value::String(v) = value {
+                result.push_str(&format!(
+                    "{}:{};",
+                    camel_to_kebab(k.to_string_lossy().to_string()),
+                    v.to_string_lossy().to_string()
+                ));
+            } else {
+                return Err(mlua::Error::runtime("Cannot parse CSS value to String!"));
+            }
+        } else {
+            return Err(mlua::Error::runtime("Cannot parse CSS key to String!"));
+        }
+    }
+    Ok(result)
+}
+///
+/// 解析 Lua 文件并正确转换成文案代码！
+///
 #[tauri::command]
 fn init_copywriting(
     app_handle: tauri::AppHandle,
@@ -141,23 +228,29 @@ fn init_copywriting(
     engine_path.push(file_name);
     let key_bytes = base64::engine::general_purpose::STANDARD
         .decode(AES_KEY)
-        .map_err(|_| RTError {
+        .map_err(|e| RTError {
             code: ErrorCode::AesKeyHasWrong,
-            msg: "AES Key is fault! please enter a real AES Key!".to_string(),
+            msg: format!(
+                "AES Key is fault! please enter a real AES Key!\nmessage: {}",
+                e
+            ),
         })?;
     if key_bytes.len() != 32 {
         return Err(RTError {
             code: ErrorCode::AesKeyHasWrong,
-            msg: "AES Key is fault! please enter a real AES Key!".to_string(),
+            msg: "AES Key is fault! please enter a real AES Key!\nmessage: wrong key length"
+                .to_string(),
         });
     }
     let key_slice: [u8; 32] = key_bytes.try_into().unwrap();
     let engine_path = engine_path.to_string_lossy().to_string();
     let (file_map, main_lua_file_name) =
-        decrypt_to_memory(engine_path, key_slice).map_err(|_| RTError {
+        decrypt_to_memory(engine_path, key_slice).map_err(|e| RTError {
             code: ErrorCode::CannotDecryptData,
-            msg: "Cannot decrypt your data, might be the aes key not equal the decrypt data!"
-                .to_string(),
+            msg: format!(
+                "Cannot decrypt your data, might be the aes key not equal the decrypt data!\nmessage: {}",
+                e
+            ),
         })?;
     let Some(main_lua_file_name) = main_lua_file_name else {
         return Err(RTError {
@@ -167,98 +260,92 @@ fn init_copywriting(
         });
     };
     let main_lua_content =
-        String::from_utf8(file_map[&main_lua_file_name].clone()).map_err(|_| RTError {
+        String::from_utf8(file_map[&main_lua_file_name].clone()).map_err(|e| RTError {
             code: ErrorCode::CannotParseLuaFile,
-            msg: "Your lua file have a wrong encoding! please try again!".to_string(),
+            msg: format!(
+                "Your lua file have a wrong encoding! please try again!\nmessage: {}",
+                e
+            ),
         })?;
     let real_main_lua_content = parse_embed(
         main_lua_file_name.as_str(),
         main_lua_content.as_str(),
         &file_map.clone(),
     );
-    // println!("{}", real_main_lua_content);
     let copywriting_struct: std::rc::Rc<std::cell::RefCell<CopywritingStruct>> =
         std::rc::Rc::new(std::cell::RefCell::new(CopywritingStruct {
-            define: serde_json::Map::new(),
+            define: BTreeMap::new(),
             resource: BTreeMap::new(),
-            locale: BTreeMap::new(),
             translate: BTreeMap::new(),
-            style: serde_json::Map::new(),
-            copywriting: serde_json::Map::new(),
+            style: BTreeMap::new(),
+            copywriting: serde_json::Value::Null,
         }));
+    use mlua::prelude::*;
+    let lua = Lua::new();
     {
-        use mlua::prelude::*;
-        let lua = Lua::new();
         let set_define_borrow = copywriting_struct.clone();
-        let set_define = lua.create_function(move |_: &Lua, (key, value): (String, LuaValue)| {
-            set_define_borrow
-                .borrow_mut()
-                .define
-                .insert(key.clone(), lua_value_to_json(key.clone(), value)?);
-            Ok(())
-        });
-        // let
-        let set_locale_borrow = copywriting_struct.clone();
-        let set_locale: Result<LuaFunction, LuaError> =
-            lua.create_function(move |_: &Lua, (key, value): (String, String)| {
-                set_locale_borrow
+        let set_define = lua
+            .create_function(move |_: &Lua, (key, value): (String, LuaValue)| {
+                set_define_borrow
                     .borrow_mut()
-                    .locale
-                    .insert(key.clone(), value.clone());
+                    .define
+                    .insert(key.clone(), lua_value_to_json(key.clone(), value)?);
                 Ok(())
-            });
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by set define!\nmessage: {}", e),
+            })?;
         let set_translate_borrow = copywriting_struct.clone();
-        let set_translate = lua.create_function(
-            move |_: &Lua, (translate_key, key, value): (String, String, String)| {
+        let set_translate =
+            lua.create_function(move |_: &Lua, (key, value): (String, LuaTable)| {
                 let translate_kvargs = &mut set_translate_borrow.borrow_mut().translate;
-                if !translate_kvargs.contains_key(translate_key.as_str()) {
-                    translate_kvargs.insert(translate_key.clone(), BTreeMap::new());
+                if !translate_kvargs.contains_key(key.as_str()) {
+                    translate_kvargs.insert(key.clone(), BTreeMap::new());
                 }
-                let translate_kvargs = translate_kvargs.get_mut(translate_key.as_str()).unwrap();
-                translate_kvargs.insert(key.clone(), value.clone());
+                let translate_kvargs = translate_kvargs.get_mut(key.as_str()).unwrap();
+                for pair in value.pairs::<mlua::Value, mlua::Value>() {
+                    let (k, v) = pair?;
+                    if let mlua::Value::String(k) = k {
+                        if let mlua::Value::String(v) = v {
+                            let k = k.to_string_lossy().to_string();
+                            let v = v.to_string_lossy().to_string();
+                            translate_kvargs.insert(k, v);
+                        } else {
+                            return Err(mlua::Error::RuntimeError(format!(
+                                "Connot convert translate value in this key {} and this translate key {}",
+                                key, k.to_string_lossy().to_string()
+                            )));
+                        }
+                    } else {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Connot convert translate key in this key {}",
+                            key
+                        )));
+                    }
+                }
                 Ok(())
-            },
-        );
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by set translate!\nmessage: {}", e),
+            })?;
         let set_style_borrow = copywriting_struct.clone();
-        let set_style =
-            lua.create_function(
+        let set_style = lua
+            .create_function(
                 move |_: &Lua, (key, value): (String, LuaValue)| match value {
                     mlua::Value::String(s) => {
-                        set_style_borrow.borrow_mut().style.insert(
-                            key,
-                            serde_json::Value::String(s.to_string_lossy().to_string()),
-                        );
-                        Ok(())
-                    }
-                    mlua::Value::Table(t) => {
-                        let mut t_map = serde_json::Map::new();
-                        for pair in t.pairs::<mlua::Value, mlua::Value>() {
-                            let (k, v) = pair?;
-                            if let mlua::Value::String(s) = k {
-                                if let mlua::Value::String(s2) = v {
-                                    t_map.insert(
-                                        s.to_string_lossy().to_string(),
-                                        serde_json::Value::String(s2.to_string_lossy().to_string()),
-                                    );
-                                } else {
-                                    return Err(mlua::Error::RuntimeError(format!(
-                                        "Connot convert style value {:?} in this key {}",
-                                        v.to_string(),
-                                        key
-                                    )));
-                                }
-                            } else {
-                                return Err(mlua::Error::RuntimeError(format!(
-                                    "Connot convert style key {:?} in this key {}",
-                                    k.to_string(),
-                                    key
-                                )));
-                            }
-                        }
                         set_style_borrow
                             .borrow_mut()
                             .style
-                            .insert(key, serde_json::Value::Object(t_map));
+                            .insert(key, s.to_string_lossy().to_string());
+                        Ok(())
+                    }
+                    mlua::Value::Table(t) => {
+                        set_style_borrow
+                            .borrow_mut()
+                            .style
+                            .insert(key, style_to_string(&t)?);
                         Ok(())
                     }
                     _ => Err(mlua::Error::RuntimeError(format!(
@@ -266,27 +353,128 @@ fn init_copywriting(
                         key
                     ))),
                 },
-            );
-        let get_define =
-            lua.create_function(|_: &Lua, key: String| Ok(format!("<g-define>{}</g-define>", key)));
-        let get_translate = lua.create_function(|_: &Lua, key: String| {
-            Ok(format!("<g-translate>{}</g-translate>", key))
-        });
-        let get_style =
-            lua.create_function(|_: &Lua, key: String| Ok(format!("<g-style>{}</g-style>", key)));
-        let get_image_borrow = copywriting_struct.clone();
-        let get_image = lua.create_function(move |_: &Lua, (key, img_type): (String, String)| {
-            get_image_borrow
-                .borrow_mut()
-                .resource
-                .insert(key.clone(), format!("data:{};base64,{}", img_type, key));
-            Ok(key.clone())
-        });
+            )
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by set style!\nmessage: {}", e),
+            })?;
+        let get_define_borrow = copywriting_struct.clone();
+        let get_define = lua
+            .create_function(move |lua: &Lua, key: String| {
+                let define_properties = get_define_borrow
+                    .borrow()
+                    .define
+                    .get(key.as_str())
+                    .cloned()
+                    .ok_or(mlua::Error::runtime(format!(
+                        "Cannot find define value by {}",
+                        key
+                    )))?;
+                json_to_lua_value(lua, &define_properties)
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by get define!\nmessage: {}", e),
+            })?;
+        let get_translate = lua
+            .create_function(|_: &Lua, key: String| {
+                Ok(format!("<g-translate>{}</g-translate>", key))
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by get translate!\nmessage: {}", e),
+            })?;
+        let get_style = lua
+            .create_function(|_: &Lua, key: String| Ok(format!("<g-style>{}</g-style>", key)))
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by get style!\nmessage: {}", e),
+            })?;
+        let get_resource_borrow = copywriting_struct.clone();
+        let get_resource = lua
+            .create_function(move |_: &Lua, (key, img_type): (String, String)| {
+                let resource = file_map
+                    .get(&key)
+                    .cloned()
+                    .ok_or(mlua::Error::runtime(format!(
+                        "Cannot find resource by key: {}",
+                        key
+                    )))?;
+                let base64_resource = base64::engine::general_purpose::STANDARD.encode(&resource);
+                get_resource_borrow.borrow_mut().resource.insert(
+                    key.clone(),
+                    format!("data:{};base64,{}", img_type, base64_resource),
+                );
+                Ok(format!("<g-image>{}</g-image>", key.clone()))
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot create lua global by Resource!\nmessage: {}", e),
+            })?;
+        let get_base64_resource_borrow = copywriting_struct.clone();
+        let get_base64_resource = lua
+            .create_function(move |_: &Lua, resource: String| {
+                let rand_uuid = gen_random_uuid();
+                get_base64_resource_borrow
+                    .borrow_mut()
+                    .resource
+                    .insert(rand_uuid.clone(), format!("{}", resource));
+                Ok(format!("<g-image>{}</g-image>", rand_uuid))
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!(
+                    "Cannot create lua global by base64 Resource!\nmessage: {}",
+                    e
+                ),
+            })?;
+        let span = lua
+            .create_function(|_: &Lua, (text, styles): (String, LuaTable)| {
+                Ok(format!(
+                    "<span style=\"{}\">{}</span>",
+                    style_to_string(&styles)?,
+                    text
+                ))
+            })
+            .map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!(
+                    "Cannot create lua global by base64 Resource!\nmessage: {}",
+                    e
+                ),
+            })?;
+        let functions: Vec<(&str, mlua::Function)> = vec![
+            ("SetDefine", set_define),
+            ("SetTranslate", set_translate),
+            ("SetStyle", set_style),
+            ("GetDefine", get_define),
+            ("GetTranslate", get_translate),
+            ("GetStyle", get_style),
+            ("Span", span),
+            ("Resource", get_resource),
+            ("Base64Resource", get_base64_resource),
+        ];
+        for (name, func) in functions {
+            lua.globals().set(name, func).map_err(|e| RTError {
+                code: ErrorCode::CannotCreateLuaGlobal,
+                msg: format!("Cannot set global function name: {}!\nmessage: {}", name, e),
+            })?;
+        }
     }
-    Err(RTError {
-        code: ErrorCode::NotImplements,
-        msg: "Code not implementation! please wait it first version upload!".to_string(),
-    })
+    _ = lua
+        .load(real_main_lua_content.clone())
+        .exec()
+        .map_err(|e| RTError {
+            code: ErrorCode::CannotParseLuaFile,
+            msg: format!("Cannot parse lua file!\nmessage: {}", e),
+        })?;
+    drop(lua);
+    println!("{:?}", copywriting_struct);
+    if let Ok(cell) = std::rc::Rc::try_unwrap(copywriting_struct) {
+        Ok(cell.into_inner())
+    } else {
+        unreachable!()
+    }
 }
 ///
 /// 遍历文件夹，找到所有 .rrs 的文件名。
