@@ -1,9 +1,11 @@
 use std::sync::OnceLock;
 use tauri::Manager;
 pub static HOME_DIR: OnceLock<String> = OnceLock::new();
+#[allow(unused)]
 fn set_file(path: String, contents: &str) -> Option<()> {
     std::fs::write(path, contents.as_bytes()).ok()
 }
+#[allow(unused)]
 fn get_file(path: String) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
@@ -16,9 +18,11 @@ pub fn init_home_dir(
         .app_local_data_dir()
         .map_err(|_| "Cannot get data dir!".to_string())?;
     let home_dir = base_dir.join(dir_name);
-    HOME_DIR
-        .set(home_dir.to_string_lossy().to_string())
-        .map_err(|_| "Cannot put all value!".to_string())?;
+    if HOME_DIR.get().is_none() {
+        HOME_DIR
+            .set(home_dir.to_string_lossy().to_string())
+            .map_err(|_| "Cannot put all value!".to_string())?;
+    }
     create_dir(HOME_DIR.get().unwrap());
     Ok(())
 }

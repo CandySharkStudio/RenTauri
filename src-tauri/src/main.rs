@@ -13,7 +13,8 @@ use decrypt::decrypt_to_memory;
 use parser::parse_embed;
 use util::*;
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, Clone)]
+#[serde(untagged)]
 enum ErrorCode {
     CannotGetExecuteDir = -1,
     CannotReadGamesPath = -2,
@@ -21,9 +22,18 @@ enum ErrorCode {
     CannotDecryptData = -4,
     CannotParseLuaFile = -5,
     CannotCreateLuaGlobal = -6,
+    CannotFindSaveDirectoryDefine = -7,
     CannotInitHomeDir = -10000,
     AesKeyHasWrong = -2147483647,
     NotImplements = -2147483648,
+}
+impl serde::Serialize for ErrorCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_i32(self.clone() as i32)
+    }
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct RTError {
@@ -219,7 +229,7 @@ fn init_copywriting(
 ) -> Result<CopywritingStruct, RTError> {
     use base64::Engine;
     let execute_dir = get_executable_file_path().ok_or(RTError {
-        code: ErrorCode::CannotInitHomeDir,
+        code: ErrorCode::CannotGetExecuteDir,
         msg: "Cannot get executable file path!".to_string(),
     })?;
     let mut engine_path = std::path::PathBuf::new();
@@ -438,10 +448,7 @@ fn init_copywriting(
             })
             .map_err(|e| RTError {
                 code: ErrorCode::CannotCreateLuaGlobal,
-                msg: format!(
-                    "Cannot create lua global by base64 Resource!\nmessage: {}",
-                    e
-                ),
+                msg: format!("Cannot create lua global by Span!\nmessage: {}", e),
             })?;
         let functions: Vec<(&str, mlua::Function)> = vec![
             ("SetDefine", set_define),
@@ -468,8 +475,30 @@ fn init_copywriting(
             code: ErrorCode::CannotParseLuaFile,
             msg: format!("Cannot parse lua file!\nmessage: {}", e),
         })?;
+    let save_directory = copywriting_struct
+        .borrow()
+        .define
+        .get("config.save_directory")
+        .ok_or(RTError {
+            code: ErrorCode::CannotFindSaveDirectoryDefine,
+            msg: format!(
+                "Cannot find \"config.save_directory\" define! Please check your lua file."
+            ),
+        })?
+        .as_str()
+        .ok_or(RTError {
+            code: ErrorCode::CannotFindSaveDirectoryDefine,
+            msg: format!(
+                "Cannot parse \"config.save_directory\" define key to string, Please check your lua file."
+            ),
+        })?.to_string();
+    println!("{}", save_directory);
+    init_home_dir(&app_handle, save_directory.as_str()).map_err(|e| RTError {
+        code: ErrorCode::CannotInitHomeDir,
+        msg: format!("Cannot init home dir! message: {}", e),
+    })?;
     drop(lua);
-    println!("{:?}", copywriting_struct);
+    // println!("{:?}", copywriting_struct);
     if let Ok(cell) = std::rc::Rc::try_unwrap(copywriting_struct) {
         Ok(cell.into_inner())
     } else {
