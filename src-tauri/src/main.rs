@@ -492,7 +492,6 @@ fn init_copywriting(
                 "Cannot parse \"config.save_directory\" define key to string, Please check your lua file."
             ),
         })?.to_string();
-    println!("{}", save_directory);
     init_home_dir(&app_handle, save_directory.as_str()).map_err(|e| RTError {
         code: ErrorCode::CannotInitHomeDir,
         msg: format!("Cannot init home dir! message: {}", e),
