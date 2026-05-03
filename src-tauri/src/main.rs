@@ -2,7 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod aeskey;
 mod decrypt;
-mod lua_reader;
 mod parser;
 mod util;
 
@@ -37,12 +36,12 @@ impl serde::Serialize for ErrorCode {
     }
 }
 #[derive(serde::Deserialize, serde::Serialize)]
-pub struct RTError {
+struct RTError {
     msg: String,
     code: ErrorCode,
 }
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct CopywritingStruct {
+struct CopywritingStruct {
     // 全局定义
     define: BTreeMap<String, serde_json::Value>,
     // 部分二进制资源。
@@ -54,11 +53,11 @@ pub struct CopywritingStruct {
     // 最终的文案代码！
     copywriting: serde_json::Value,
 }
-pub static COPY_WRITING: std::sync::OnceLock<CopywritingStruct> = std::sync::OnceLock::new();
+static COPY_WRITING: std::sync::OnceLock<CopywritingStruct> = std::sync::OnceLock::new();
 ///
 /// 遍历当前 serde_json::Value，将当前 serde_json::Value 转成 LuaTable 格式。
 ///
-pub fn json_to_lua_value(
+fn json_to_lua_value(
     lua: &mlua::prelude::Lua,
     val: &serde_json::Value,
 ) -> Result<mlua::Value, mlua::Error> {
@@ -314,34 +313,6 @@ fn init_copywriting(
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by set translate!\nmessage: {}", e),
             })?;
-        let set_style_borrow = copywriting_struct.clone();
-        let set_style = lua
-            .create_function(
-                move |_: &Lua, (key, value): (String, LuaValue)| match value {
-                    mlua::Value::String(s) => {
-                        set_style_borrow
-                            .borrow_mut()
-                            .style
-                            .insert(key, s.to_string_lossy().to_string());
-                        Ok(())
-                    }
-                    mlua::Value::Table(t) => {
-                        set_style_borrow
-                            .borrow_mut()
-                            .style
-                            .insert(key, style_to_string(&t)?);
-                        Ok(())
-                    }
-                    _ => Err(mlua::Error::RuntimeError(format!(
-                        "Cannot convert Define a valid value! key: {}",
-                        key
-                    ))),
-                },
-            )
-            .map_err(|e| RTError {
-                code: ErrorCode::CannotCreateLuaGlobal,
-                msg: format!("Cannot create lua global by set style!\nmessage: {}", e),
-            })?;
         let get_define_borrow = copywriting_struct.clone();
         let get_define = lua
             .create_function(move |lua: &Lua, key: String| {
@@ -368,8 +339,32 @@ fn init_copywriting(
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by get translate!\nmessage: {}", e),
             })?;
-        let get_style = lua
-            .create_function(|_: &Lua, key: String| Ok(format!("<g-style>{}</g-style>", key)))
+        let new_style_borrow = copywriting_struct.clone();
+        let new_style = lua
+            .create_function(move |_: &Lua, value: mlua::Value| {
+                let rand_uuid = gen_random_uuid();
+                match value {
+                    mlua::Value::String(s) => {
+                        new_style_borrow
+                            .borrow_mut()
+                            .style
+                            .insert(rand_uuid.clone(), s.to_string_lossy().to_string());
+                    }
+                    mlua::Value::Table(t) => {
+                        new_style_borrow
+                            .borrow_mut()
+                            .style
+                            .insert(rand_uuid.clone(), style_to_string(&t)?);
+                    }
+                    _ => {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            "Cannot convert Define a valid value! value: {}",
+                            value.to_string()?.to_string()
+                        )))
+                    }
+                }
+                Ok(format!("<g-style>{}</g-style>", rand_uuid.clone()))
+            })
             .map_err(|e| RTError {
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by get style!\nmessage: {}", e),
@@ -389,7 +384,7 @@ fn init_copywriting(
                     key.clone(),
                     format!("data:{};base64,{}", img_type, base64_resource),
                 );
-                Ok(format!("<g-image>{}</g-image>", key.clone()))
+                Ok(format!("<g-resource>{}</g-resource>", key.clone()))
             })
             .map_err(|e| RTError {
                 code: ErrorCode::CannotCreateLuaGlobal,
@@ -403,7 +398,7 @@ fn init_copywriting(
                     .borrow_mut()
                     .resource
                     .insert(rand_uuid.clone(), format!("{}", resource));
-                Ok(format!("<g-image>{}</g-image>", rand_uuid))
+                Ok(format!("<g-resource>{}</g-resource>", rand_uuid))
             })
             .map_err(|e| RTError {
                 code: ErrorCode::CannotCreateLuaGlobal,
@@ -427,15 +422,14 @@ fn init_copywriting(
         let functions: Vec<(&str, mlua::Function)> = vec![
             ("SetDefine", set_define),
             ("SetTranslate", set_translate),
-            ("SetStyle", set_style),
             ("GetDefine", get_define),
             ("GetTranslate", get_translate),
-            ("GetStyle", get_style),
+            ("NewStyle", new_style),
             ("Span", span),
             ("Resource", get_resource),
             ("Base64Resource", get_base64_resource),
         ];
-        for (name, func) in functions {
+        for (name, func) in functions.into_iter() {
             lua.globals().set(name, func).map_err(|e| RTError {
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot set global function name: {}!\nmessage: {}", name, e),
