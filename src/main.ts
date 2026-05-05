@@ -6,7 +6,9 @@ let root: HTMLDivElement | null;
 window.addEventListener("DOMContentLoaded", () => {
   root = document.getElementById("root") as HTMLDivElement;
   root.innerHTML = `
-  <img src="${Loading}" style="width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;">
+    <div style="display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh; position: fixed; top: 0; left: 0;">
+      <img src="${Loading}" style="max-width: 100vw; max-height: 100vh; aspect-ratio: 16 / 9;">
+    </div>
   `;
   invoke("init_copywriting", { fileName: "main.rrs" })
     .then(console.log)

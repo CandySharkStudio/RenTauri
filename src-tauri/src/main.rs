@@ -50,6 +50,8 @@ struct CopywritingStruct {
     translate: BTreeMap<String, BTreeMap<String, String>>,
     // 当前样式表
     style: BTreeMap<String, String>,
+    // 当前控件表
+    components: Vec<BTreeMap<String, serde_json::Value>>,
     // 最终的文案代码！
     copywriting: serde_json::Value,
 }
@@ -275,6 +277,7 @@ fn init_copywriting(
             resource: BTreeMap::new(),
             translate: BTreeMap::new(),
             style: BTreeMap::new(),
+            components: Vec::new(),
             copywriting: serde_json::Value::Null,
         }));
     use mlua::prelude::*;
@@ -358,7 +361,7 @@ fn init_copywriting(
                     }
                     _ => {
                         return Err(mlua::Error::RuntimeError(format!(
-                            "Cannot convert Define a valid value! value: {}",
+                            "Cannot convert style to a valid value! value: {}",
                             value.to_string()?.to_string()
                         )))
                     }
