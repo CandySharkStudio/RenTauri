@@ -6,7 +6,7 @@
 
 Lua 教程可以参考 [官方教程 gitbook](https://candysharkstudio.gitbook.io/ren-rs-lua-tutorial)，**需要挂七根木棍才能上**
 
-请注意！使用本教程的 Lua 已经可以解决 99% 的 UI/UX 问题，视觉小说完全可以直接用这个做！还有 1% 的问题是可能实在是引擎部分解决不了的，需要手动修改 RenTauri 的源代码的。。
+请注意！使用本教程的 Lua 已经可以解决 99% 的 UI/UX 问题，视觉小说完全可以直接用这个做！还有 1% 的问题是可能实在是引擎部分解决不了的，需要手动修改 Ren'Rs 的源代码的。。
 
 # 开源协议
 
@@ -14,7 +14,6 @@ Lua 教程可以参考 [官方教程 gitbook](https://candysharkstudio.gitbook.i
 
 # 交叉编译
 
-本引擎目前暂时不支持交叉编译（其实就是 Tauri 官方的问题！！），各位可以用咱们的官方 Github Actions 去跨平台编译哦！
 
 # 鸣谢
 
@@ -31,8 +30,9 @@ Lua 教程可以参考 [官方教程 gitbook](https://candysharkstudio.gitbook.i
 
 # 使用事宜
 
-本框架采用 Vite + Vanilla 打包！部分组件用了 Lit 库，使用了 TypeScript。 
+1. 本框架采用 Vite + Vanilla 打包！部分组件用了 Lit 库，使用了 TypeScript。 
+2. 除此之外，并未使用任何前端框架，使用纯 Vanilla 库进行构建并打包，部分 rainbow、scare 等标签使用了 Lit。
+3. Lit 是一个用于构建原生 HTML 标签的一个框架！它非常好用，我很喜欢！
 
-除此之外，并未使用任何前端框架，使用纯 Vanilla 库进行构建并打包，部分 rainbow、scare 等标签使用了 Lit。
-
-Lit 是一个用于构建原生 HTML 标签的一个框架！它非常好用，我很喜欢！
+> [!TIPS] 重要
+> 本引擎目前暂时不支持交叉编译（其实就是 Tauri 官方的问题！！），各位可以用咱们的官方 Github Actions 去跨平台编译哦！
