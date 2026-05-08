@@ -10,15 +10,17 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
 
       - name: Install Rust stable
-        uses: dtolnay/rust-action/setup@v1
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.84.1
 
       - name: Add iOS targets to Rust
         run: rustup target add aarch64-apple-ios x86_64-apple-ios
