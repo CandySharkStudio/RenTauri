@@ -40,28 +40,29 @@ jobs:
           #!/bin/bash
           PROJ_FILE="$REPO_DIR/src-tauri/gen/apple/ren-rs.xcodeproj/project.pbxproj"
           if [ -f "\$PROJ_FILE" ]; then
-            sed -i '' 's/DEVELOPMENT_TEAM = ".*";/DEVELOPMENT_TEAM = ""; CODE_SIGN_STYLE = Manual; PROVISIONING_PROFILE_SPECIFIER = ""; CODE_SIGNING_REQUIRED = NO;/g' "\$PROJ_FILE"
+            sed -i '' 's/DEVELOPMENT_TEAM = ".*";/DEVELOPMENT_TEAM = "";/g' "\$PROJ_FILE"
             sed -i '' '/CODE_SIGN_IDENTITY/d' "\$PROJ_FILE"
             sed -i '' '/CODE_SIGN_ENTITLEMENTS/d' "\$PROJ_FILE"
           fi
           cat \$PROJ_FILE
           /usr/bin/xcodebuild "\$@" \\
             CODE_SIGN_STYLE=Manual \\
-            PROVISIONING_PROFILE_SPECIFIER="" \\
             CODE_SIGNING_ALLOWED=NO \\
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \\
+            PROVISIONING_PROFILE_SPECIFIER=""
           EOF
           chmod +x /tmp/tauri_wrapper/xcodebuild
       - name: Build Unsigned IPA pack!
         env:
           APPLE_DEVELOPMENT_TEAM: "woainimiao"
           # DEVELOPMENT_TEAM: ""
-          CODE_SIGN_IDENTITY: "-"
-          CODE_SIGNING_ALLOWED: "NO"
-          CODE_SIGNING_REQUIRED: "NO"
-          PROVISIONING_PROFILE_SPECIFIER: ""
+          # CODE_SIGN_IDENTITY: "-"
+          # CODE_SIGNING_ALLOWED: "NO"
+          # CODE_SIGNING_REQUIRED: "NO"
+          # PROVISIONING_PROFILE_SPECIFIER: ""
         run: |
           export PATH="/tmp/tauri_wrapper:$PATH"
+          cargo clean
           bun tauri ios build
 
       - name: Package Unsigned .ipa
