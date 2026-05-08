@@ -15,7 +15,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -42,9 +42,7 @@ jobs:
           if [ -f "\$PROJ_FILE" ]; then
             sed -i '' 's/DEVELOPMENT_TEAM = ".*"/DEVELOPMENT_TEAM = ""/g' "\$PROJ_FILE"
             sed -i '' '/CODE_SIGN_IDENTITY/d' "\$PROJ_FILE"
-            sed -i '' '/DEVELOPMENT_TEAM = "";/a\
-          CODE_SIGN_STYLE = Manual;
-          ' "\$PROJ_FILE"
+            sed -i '' '/DEVELOPMENT_TEAM = "";/a\\nCODE_SIGN_STYLE = Manual;\\n' "\$PROJ_FILE"
           fi
           cat \$PROJ_FILE
           /usr/bin/xcodebuild "\$@"
