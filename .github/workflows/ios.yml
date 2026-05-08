@@ -43,6 +43,7 @@ jobs:
             sed -i '' 's/DEVELOPMENT_TEAM = woainimiao/DEVELOPMENT_TEAM = ""/g' "\$PROJ_FILE"
             sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "\$PROJ_FILE"
           fi
+          cat $PROJ_FILE
           /usr/bin/xcodebuild "\$@"
           EOF
           chmod +x /tmp/tauri_wrapper/xcodebuild
