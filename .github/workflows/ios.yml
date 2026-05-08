@@ -30,10 +30,12 @@ jobs:
           npm install -g bun
           bun install
           bun tauri ios init
+          bun tauri icon
 
       - name: Build Unsigned Archive via xcodebuild
         run: |
           cd src-tauri/gen/apple
+          xcodebuild -list -project *.xcodeproj
           xcodebuild archive \
             -project *.xcodeproj \
             -scheme ren-rs_iOS \
