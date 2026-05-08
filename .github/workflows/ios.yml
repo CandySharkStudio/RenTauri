@@ -34,9 +34,12 @@ jobs:
 
       - name: Build Unsigned Archive via Tauri
         env:
-          CODE_SIGNING_ALLOWED: "NO"      # 强制 Xcode 不签名
-          CODE_SIGNING_REQUIRED: "NO"     # 强制 Xcode 不要求签名
           APPLE_DEVELOPMENT_TEAM: "CandySharkStudio"
+          DEVELOPMENT_TEAM: ""
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+          PROVISIONING_PROFILE_SPECIFIER: ""
         run: bun tauri ios build
 
       - name: Package Unsigned .ipa
