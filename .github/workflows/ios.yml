@@ -40,8 +40,11 @@ jobs:
           #!/bin/bash
           PROJ_FILE="$REPO_DIR/src-tauri/gen/apple/ren-rs.xcodeproj/project.pbxproj"
           if [ -f "\$PROJ_FILE" ]; then
-            sed -i '' 's/DEVELOPMENT_TEAM = woainimiao/DEVELOPMENT_TEAM = ""/g' "\$PROJ_FILE"
-            sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' "\$PROJ_FILE"
+            sed -i '' 's/DEVELOPMENT_TEAM = ".*"/DEVELOPMENT_TEAM = ""/g' "\$PROJ_FILE"
+            sed -i '' 's/CODE_SIGN_IDENTITY = ".*"/CODE_SIGN_IDENTITY = "-"/g' "\$PROJ_FILE"
+            sed -i '' '/CODE_SIGN_IDENTITY = "-";/a\
+          CODE_SIGN_STYLE = Manual;
+          ' "\$PROJ_FILE"
           fi
           cat \$PROJ_FILE
           /usr/bin/xcodebuild "\$@"
