@@ -36,6 +36,7 @@ jobs:
         env:
           CODE_SIGNING_ALLOWED: "NO"      # 强制 Xcode 不签名
           CODE_SIGNING_REQUIRED: "NO"     # 强制 Xcode 不要求签名
+          APPLE_DEVELOPMENT_TEAM: "CandySharkStudio"
         run: bun tauri ios build
 
       - name: Package Unsigned .ipa
