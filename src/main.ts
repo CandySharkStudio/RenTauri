@@ -10,9 +10,9 @@ window.addEventListener("DOMContentLoaded", () => {
       <img src="${Loading}" style="max-width: 100vw; max-height: 100vh; aspect-ratio: 16 / 9;">
     </div>
   `;
-  invoke("init_copywriting", { fileName: "main.rrs" })
-    .then(console.log)
-    .catch(console.error);
+  // invoke("init_copywriting", { fileName: "main.rrs" })
+  //   .then(console.log)
+  //   .catch(console.error);
 });
 window.addEventListener("contextmenu", (e) => {
   e.preventDefault();

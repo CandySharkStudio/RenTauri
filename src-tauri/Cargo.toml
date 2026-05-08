@@ -65,8 +65,8 @@ base64 = "=0.22.1"
 crypto-common = "=0.1.7"
 cipher = "=0.4.4"
 
-[target.'cfg(not(all(target_os = "windows", target_arch = "aarch64")))'.dependencies]
-steamworks = "0.12"
+[target.'cfg(not(any(all(target_os = "windows", target_arch = "aarch64"), target_os = "ios")))'.dependencies]
+steamworks = "0.13"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 uds_windows = "=1.1.0"

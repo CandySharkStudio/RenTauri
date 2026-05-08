@@ -13,7 +13,6 @@ use parser::parse_embed;
 use util::*;
 
 #[derive(serde::Deserialize, Clone)]
-#[serde(untagged)]
 enum ErrorCode {
     CannotGetExecuteDir = -1,
     CannotReadGamesPath = -2,
@@ -35,12 +34,12 @@ impl serde::Serialize for ErrorCode {
         serializer.serialize_i32(self.clone() as i32)
     }
 }
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Serialize)]
 struct RTError {
     msg: String,
     code: ErrorCode,
 }
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 struct CopywritingStruct {
     // 全局定义
     define: BTreeMap<String, serde_json::Value>,
@@ -55,7 +54,7 @@ struct CopywritingStruct {
     // 最终的文案代码！
     copywriting: serde_json::Value,
 }
-static COPY_WRITING: std::sync::OnceLock<CopywritingStruct> = std::sync::OnceLock::new();
+static COPY_WRITING: std::sync::OnceLock<std::sync::Mutex<CopywritingStruct>> = std::sync::OnceLock::new();
 ///
 /// 遍历当前 serde_json::Value，将当前 serde_json::Value 转成 LuaTable 格式。
 ///
@@ -271,23 +270,24 @@ fn init_copywriting(
         main_lua_content.as_str(),
         &file_map.clone(),
     );
-    let copywriting_struct: std::rc::Rc<std::cell::RefCell<CopywritingStruct>> =
-        std::rc::Rc::new(std::cell::RefCell::new(CopywritingStruct {
-            define: BTreeMap::new(),
-            resource: BTreeMap::new(),
-            translate: BTreeMap::new(),
-            style: BTreeMap::new(),
-            components: Vec::new(),
-            copywriting: serde_json::Value::Null,
-        }));
+    COPY_WRITING.set(std::sync::Mutex::new(CopywritingStruct {
+        define: BTreeMap::new(),
+        resource: BTreeMap::new(),
+        translate: BTreeMap::new(),
+        style: BTreeMap::new(),
+        components: Vec::new(),
+        copywriting: serde_json::Value::Null,
+    })).unwrap();
     use mlua::prelude::*;
     let lua = Lua::new();
     {
-        let set_define_borrow = copywriting_struct.clone();
         let set_define = lua
             .create_function(move |_: &Lua, (key, value): (String, LuaValue)| {
-                set_define_borrow
-                    .borrow_mut()
+                COPY_WRITING
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
                     .define
                     .insert(key.clone(), lua_value_to_json(key.clone(), value)?);
                 Ok(())
@@ -296,10 +296,14 @@ fn init_copywriting(
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by set define!\nmessage: {}", e),
             })?;
-        let set_translate_borrow = copywriting_struct.clone();
         let set_translate = lua
             .create_function(move |_: &Lua, (key, value): (String, LuaTable)| {
-                let translate_kvargs = &mut set_translate_borrow.borrow_mut().translate;
+                let translate_kvargs = &mut COPY_WRITING
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .translate;
                 if !translate_kvargs.contains_key(key.as_str()) {
                     translate_kvargs.insert(key.clone(), BTreeMap::new());
                 }
@@ -316,11 +320,13 @@ fn init_copywriting(
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by set translate!\nmessage: {}", e),
             })?;
-        let get_define_borrow = copywriting_struct.clone();
         let get_define = lua
             .create_function(move |lua: &Lua, key: String| {
-                let define_properties = get_define_borrow
-                    .borrow()
+                let define_properties = COPY_WRITING
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
                     .define
                     .get(key.as_str())
                     .cloned()
@@ -342,20 +348,25 @@ fn init_copywriting(
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by get translate!\nmessage: {}", e),
             })?;
-        let new_style_borrow = copywriting_struct.clone();
         let new_style = lua
             .create_function(move |_: &Lua, value: mlua::Value| {
                 let rand_uuid = gen_random_uuid();
                 match value {
                     mlua::Value::String(s) => {
-                        new_style_borrow
-                            .borrow_mut()
+                        COPY_WRITING
+                            .get()
+                            .unwrap()
+                            .lock()
+                            .unwrap()
                             .style
                             .insert(rand_uuid.clone(), s.to_string_lossy().to_string());
                     }
                     mlua::Value::Table(t) => {
-                        new_style_borrow
-                            .borrow_mut()
+                        COPY_WRITING
+                            .get()
+                            .unwrap()
+                            .lock()
+                            .unwrap()
                             .style
                             .insert(rand_uuid.clone(), style_to_string(&t)?);
                     }
@@ -372,7 +383,6 @@ fn init_copywriting(
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by get style!\nmessage: {}", e),
             })?;
-        let get_resource_borrow = copywriting_struct.clone();
         let get_resource = lua
             .create_function(move |_: &Lua, (key, img_type): (String, String)| {
                 let resource = file_map
@@ -383,22 +393,30 @@ fn init_copywriting(
                         key
                     )))?;
                 let base64_resource = base64::engine::general_purpose::STANDARD.encode(&resource);
-                get_resource_borrow.borrow_mut().resource.insert(
-                    key.clone(),
-                    format!("data:{};base64,{}", img_type, base64_resource),
-                );
+                COPY_WRITING
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .resource
+                    .insert(
+                        key.clone(),
+                        format!("data:{};base64,{}", img_type, base64_resource),
+                    );
                 Ok(format!("<g-resource>{}</g-resource>", key.clone()))
             })
             .map_err(|e| RTError {
                 code: ErrorCode::CannotCreateLuaGlobal,
                 msg: format!("Cannot create lua global by Resource!\nmessage: {}", e),
             })?;
-        let get_base64_resource_borrow = copywriting_struct.clone();
         let get_base64_resource = lua
             .create_function(move |_: &Lua, resource: String| {
                 let rand_uuid = gen_random_uuid();
-                get_base64_resource_borrow
-                    .borrow_mut()
+                COPY_WRITING
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
                     .resource
                     .insert(rand_uuid.clone(), format!("{}", resource));
                 Ok(format!("<g-resource>{}</g-resource>", rand_uuid))
@@ -446,8 +464,11 @@ fn init_copywriting(
             code: ErrorCode::CannotParseLuaFile,
             msg: format!("Cannot parse lua file!\nmessage: {}", e),
         })?;
-    let save_directory = copywriting_struct
-        .borrow()
+    let save_directory = COPY_WRITING
+        .get()
+        .unwrap()
+        .lock()
+        .unwrap()
         .define
         .get("config.save_directory")
         .ok_or(RTError {
@@ -468,12 +489,7 @@ fn init_copywriting(
         msg: format!("Cannot init home dir! message: {}", e),
     })?;
     drop(lua);
-    // println!("{:?}", copywriting_struct);
-    if let Ok(cell) = std::rc::Rc::try_unwrap(copywriting_struct) {
-        Ok(cell.into_inner())
-    } else {
-        unreachable!()
-    }
+    Ok(COPY_WRITING.get().unwrap().lock().unwrap().clone())
 }
 ///
 /// 遍历文件夹，找到所有 .rrs 的文件名。

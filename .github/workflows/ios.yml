@@ -1,0 +1,54 @@
+name: Build Unsigned iOS IPA
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-latest # 必须用 macOS 环境
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-action/setup@v1
+
+      - name: Add iOS targets to Rust
+        run: rustup target add aarch64-apple-ios x86_64-apple-ios
+
+      - name: Tauri iOS init
+        run: | 
+          npm install -g bun
+          bun install
+          bun tauri ios init
+
+      - name: Build Unsigned Archive via xcodebuild
+        run: |
+          cd src-tauri/gen/apple
+          xcodebuild archive \
+            -project *.xcodeproj \
+            -scheme ren-rs_iOS \
+            -archivePath ./build/App.xcarchive \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Package Unsigned .ipa
+        run: |
+          cd src-tauri/gen/apple
+          mkdir -p Payload
+          cp -R build/App.xcarchive/Products/Applications/*.app Payload/
+          zip -r MyApp.unsigned.ipa Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: src-tauri/gen/apple/MyApp.unsigned.ipa
